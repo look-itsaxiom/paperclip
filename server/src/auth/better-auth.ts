@@ -2,6 +2,7 @@ import type { Request, RequestHandler } from "express";
 import type { IncomingHttpHeaders } from "node:http";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import { genericOAuth } from "better-auth/plugins/generic-oauth";
 import { toNodeHandler } from "better-auth/node";
 import type { Db } from "@paperclipai/db";
 import {
@@ -91,6 +92,24 @@ export function createBetterAuthInstance(db: Db, config: Config, trustedOrigins?
       requireEmailVerification: false,
       disableSignUp: config.authDisableSignUp,
     },
+    plugins: [
+      ...(process.env.POCKET_ID_CLIENT_ID
+        ? [
+            genericOAuth({
+              config: [
+                {
+                  providerId: "pocket-id",
+                  discoveryUrl: `${process.env.POCKET_ID_ISSUER_URL ?? "https://auth.skibeness.com"}/.well-known/openid-configuration`,
+                  clientId: process.env.POCKET_ID_CLIENT_ID,
+                  clientSecret: process.env.POCKET_ID_CLIENT_SECRET,
+                  scopes: ["openid", "email", "profile"],
+                  pkce: true,
+                },
+              ],
+            }),
+          ]
+        : []),
+    ],
     ...(isHttpOnly ? { advanced: { useSecureCookies: false } } : {}),
   };
 
@@ -98,7 +117,7 @@ export function createBetterAuthInstance(db: Db, config: Config, trustedOrigins?
     delete (authConfig as { baseURL?: string }).baseURL;
   }
 
-  return betterAuth(authConfig);
+  return betterAuth(authConfig as Parameters<typeof betterAuth>[0]);
 }
 
 export function createBetterAuthHandler(auth: BetterAuthInstance): RequestHandler {

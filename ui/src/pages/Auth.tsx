@@ -5,7 +5,7 @@ import { authApi } from "../api/auth";
 import { queryKeys } from "../lib/queryKeys";
 import { Button } from "@/components/ui/button";
 import { AsciiArtAnimation } from "@/components/AsciiArtAnimation";
-import { Sparkles } from "lucide-react";
+import { KeyRound, Sparkles } from "lucide-react";
 
 type AuthMode = "sign_in" | "sign_up";
 
@@ -87,8 +87,33 @@ export function AuthPage() {
               : "Create an account for this instance. Email confirmation is not required in v1."}
           </p>
 
+          <div className="mt-6">
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={() => {
+                setError(null);
+                authApi.signInSSO("pocket-id", nextPath).catch((err) => {
+                  setError(err instanceof Error ? err.message : "SSO sign-in failed");
+                });
+              }}
+            >
+              <KeyRound className="h-4 w-4 mr-2" />
+              Sign in with SSO
+            </Button>
+          </div>
+
+          <div className="relative mt-6 mb-2">
+            <div className="absolute inset-0 flex items-center">
+              <span className="w-full border-t" />
+            </div>
+            <div className="relative flex justify-center text-xs uppercase">
+              <span className="bg-background px-2 text-muted-foreground">or</span>
+            </div>
+          </div>
+
           <form
-            className="mt-6 space-y-4"
+            className="mt-4 space-y-4"
             onSubmit={(event) => {
               event.preventDefault();
               mutation.mutate();

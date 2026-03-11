@@ -68,6 +68,17 @@ export const authApi = {
     await authPost("/sign-up/email", input);
   },
 
+  signInSSO: async (providerId: string, callbackURL?: string) => {
+    const payload = await authPost("/sign-in/oauth2", {
+      providerId,
+      callbackURL: callbackURL ?? "/",
+    });
+    const result = payload as { url?: string; redirect?: boolean } | null;
+    if (result?.url) {
+      window.location.href = result.url;
+    }
+  },
+
   signOut: async () => {
     await authPost("/sign-out", {});
   },
