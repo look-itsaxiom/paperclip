@@ -4,6 +4,7 @@ import {
   uuid,
   text,
   integer,
+  boolean,
   timestamp,
   jsonb,
   index,
@@ -30,11 +31,15 @@ export const agents = pgTable(
     permissions: jsonb("permissions").$type<Record<string, unknown>>().notNull().default({}),
     lastHeartbeatAt: timestamp("last_heartbeat_at", { withTimezone: true }),
     metadata: jsonb("metadata").$type<Record<string, unknown>>(),
+    // Paperwork additions
+    departmentId: uuid("department_id"),
+    isEphemeral: boolean("is_ephemeral").default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
     companyStatusIdx: index("agents_company_status_idx").on(table.companyId, table.status),
     companyReportsToIdx: index("agents_company_reports_to_idx").on(table.companyId, table.reportsTo),
+    companyDeptIdx: index("agents_company_dept_idx").on(table.companyId, table.departmentId),
   }),
 );

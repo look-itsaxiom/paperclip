@@ -9,7 +9,7 @@ import {
 } from "@paperclipai/shared";
 import { forbidden } from "../errors.js";
 import { validate } from "../middleware/validate.js";
-import { accessService, companyPortabilityService, companyService, logActivity } from "../services/index.js";
+import { accessService, companyPortabilityService, companyService, departmentsService, logActivity } from "../services/index.js";
 import { assertBoard, assertCompanyAccess, getActorInfo } from "./authz.js";
 
 export function companyRoutes(db: Db) {
@@ -17,6 +17,7 @@ export function companyRoutes(db: Db) {
   const svc = companyService(db);
   const portability = companyPortabilityService(db);
   const access = accessService(db);
+  const deptSvc = departmentsService(db);
 
   router.get("/", async (req, res) => {
     assertBoard(req);
@@ -112,6 +113,17 @@ export function companyRoutes(db: Db) {
       throw forbidden("Instance admin required");
     }
     const company = await svc.create(req.body);
+    try {
+      await deptSvc.create(company.id, {
+        slug: "research-and-development",
+        name: "Research & Development",
+        description: "Researches tools, evaluates techniques, and compiles findings into reusable skills. The workshop's stem cell department.",
+        knowledgeMd: `# Research & Development\n\nThis department researches, evaluates, and builds capabilities.\n\n## Core Operations\n- Evaluate tools and techniques\n- Research best practices for domains\n- Create new departments when needed\n- Compile findings into skills\n\n## Principles\n- Skills over documents: knowledge that can be acted on becomes a skill\n- Update, don't duplicate\n- Be specific\n- Include the why`,
+        toolsYaml: "",
+      }, { userId: req.actor.userId ?? "system" });
+    } catch (err) {
+      console.warn("Failed to seed R&D department for company", company.id, err);
+    }
     await access.ensureMembership(company.id, "user", req.actor.userId ?? "local-board", "owner", "active");
     await logActivity(db, {
       companyId: company.id,

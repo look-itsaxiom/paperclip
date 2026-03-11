@@ -338,6 +338,111 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   const billingType = resolveClaudeBillingType(env);
   const skillsDir = await buildSkillsDir();
 
+  // Write department skills from context
+  const departmentSkills = Array.isArray(context.paperclipDepartmentSkills)
+    ? context.paperclipDepartmentSkills.filter(
+        (s): s is { slug: string; name: string; description: string; contentMd: string } =>
+          typeof s === "object" && s !== null && typeof (s as any).slug === "string",
+      )
+    : [];
+  for (const skill of departmentSkills) {
+    const skillDir = path.join(skillsDir, ".claude", "skills", `dept-${skill.slug}`);
+    await fs.mkdir(skillDir, { recursive: true });
+    const skillContent = `---\nname: ${skill.name}\ndescription: ${skill.description}\n---\n\n${skill.contentMd}`;
+    await fs.writeFile(path.join(skillDir, "SKILL.md"), skillContent, "utf-8");
+  }
+
+  // Write project warm-start context as a file for the agent to reference
+  const projectContext = typeof context.paperclipProjectContext === "object" && context.paperclipProjectContext !== null
+    ? context.paperclipProjectContext as Record<string, unknown>
+    : null;
+  if (projectContext) {
+    const warmStartPath = path.join(skillsDir, ".claude", "project-context.md");
+    await fs.mkdir(path.dirname(warmStartPath), { recursive: true });
+    const lines: string[] = ["# Project Context (auto-generated warm-start)"];
+    if (projectContext.statusMd) lines.push(`\n## Status\n${projectContext.statusMd}`);
+    if (projectContext.latestBriefing && typeof projectContext.latestBriefing === "object") {
+      const briefing = projectContext.latestBriefing as Record<string, unknown>;
+      lines.push(`\n## Latest Briefing (${briefing.triggerEvent})\n${briefing.contentMd}`);
+    }
+    const milestones = Array.isArray(projectContext.activeMilestones) ? projectContext.activeMilestones : [];
+    if (milestones.length > 0) {
+      lines.push("\n## Active Milestones");
+      for (const m of milestones) {
+        if (typeof m === "object" && m !== null) {
+          const ms = m as Record<string, unknown>;
+          lines.push(`- ${ms.name}: ${ms.progress}% (${ms.status})`);
+        }
+      }
+    }
+    const recentWork = Array.isArray(projectContext.recentWork) ? projectContext.recentWork : [];
+    if (recentWork.length > 0) {
+      lines.push("\n## Recent Work");
+      for (const e of recentWork) {
+        if (typeof e === "object" && e !== null) {
+          const entry = e as Record<string, unknown>;
+          lines.push(`- [${entry.entryType}] ${entry.description} (+${entry.progressDelta}%)`);
+        }
+      }
+    }
+    await fs.writeFile(warmStartPath, lines.join("\n"), "utf-8");
+  }
+
+  // Department plugins: write MCP server config and collect env bindings
+  const departmentPlugins = Array.isArray(context.paperclipDepartmentPlugins)
+    ? context.paperclipDepartmentPlugins.filter(
+        (p): p is { slug: string; pluginType: string; config: Record<string, unknown> } =>
+          typeof p === "object" && p !== null && typeof (p as any).pluginType === "string",
+      )
+    : [];
+
+  let mcpConfigPath: string | null = null;
+  const pluginEnvBindings: Record<string, string> = {};
+
+  if (departmentPlugins.length > 0) {
+    // Build MCP server config from mcp_server type plugins
+    const mcpServers: Record<string, { command: string; args?: string[]; env?: Record<string, string> }> = {};
+    for (const plugin of departmentPlugins) {
+      if (plugin.pluginType === "mcp_server") {
+        const cfg = plugin.config;
+        if (typeof cfg.command === "string") {
+          const serverDef: { command: string; args?: string[]; env?: Record<string, string> } = {
+            command: cfg.command,
+          };
+          if (Array.isArray(cfg.args)) {
+            serverDef.args = cfg.args.filter((a): a is string => typeof a === "string");
+          }
+          if (typeof cfg.env === "object" && cfg.env !== null && !Array.isArray(cfg.env)) {
+            const envObj: Record<string, string> = {};
+            for (const [k, v] of Object.entries(cfg.env as Record<string, unknown>)) {
+              if (typeof v === "string") envObj[k] = v;
+            }
+            if (Object.keys(envObj).length > 0) serverDef.env = envObj;
+          }
+          mcpServers[plugin.slug] = serverDef;
+        }
+      } else if (plugin.pluginType === "env_binding") {
+        const cfg = plugin.config;
+        if (typeof cfg.key === "string" && typeof cfg.value === "string") {
+          pluginEnvBindings[cfg.key] = cfg.value;
+        }
+      }
+      // cli_tool type: no special wiring needed — adapter can verify availability but
+      // the tools are expected to already be installed on the host
+    }
+
+    if (Object.keys(mcpServers).length > 0) {
+      const mcpConfig = { mcpServers };
+      mcpConfigPath = path.join(skillsDir, "department-mcp-config.json");
+      await fs.writeFile(mcpConfigPath, JSON.stringify(mcpConfig, null, 2), "utf-8");
+    }
+  }
+
+  // Merge plugin env bindings into agent environment
+  for (const [key, value] of Object.entries(pluginEnvBindings)) {
+    env[key] = value;
+  }
+
   // When instructionsFilePath is configured, create a combined temp file that
   // includes both the file content and the path directive, so we only need
   // --append-system-prompt-file (Claude CLI forbids using both flags together).
@@ -385,6 +490,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       args.push("--append-system-prompt-file", effectiveInstructionsFilePath);
     }
     args.push("--add-dir", skillsDir);
+    if (mcpConfigPath) args.push("--mcp-config", mcpConfigPath);
     if (extraArgs.length > 0) args.push(...extraArgs);
     return args;
   };

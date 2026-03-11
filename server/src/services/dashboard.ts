@@ -1,6 +1,16 @@
-import { and, eq, gte, sql } from "drizzle-orm";
+import { and, eq, gte, or, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
-import { agents, approvals, companies, costEvents, issues } from "@paperclipai/db";
+import {
+  agents,
+  approvals,
+  companies,
+  costEvents,
+  departments,
+  issues,
+  ledgerEntries,
+  milestones,
+  projects,
+} from "@paperclipai/db";
 import { notFound } from "../errors.js";
 
 export function dashboardService(db: Db) {
@@ -79,6 +89,57 @@ export function dashboardService(db: Db) {
           ? (monthSpendCents / company.budgetMonthlyCents) * 100
           : 0;
 
+      const departmentCount = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(departments)
+        .where(eq(departments.companyId, companyId))
+        .then((rows) => Number(rows[0]?.count ?? 0));
+
+      const projectLifecycleRows = await db
+        .select({
+          lifecycleState: projects.lifecycleState,
+          count: sql<number>`count(*)`,
+        })
+        .from(projects)
+        .where(eq(projects.companyId, companyId))
+        .groupBy(projects.lifecycleState);
+
+      const projectLifecycle: Record<string, number> = {
+        active: 0,
+        backlog: 0,
+        archived: 0,
+      };
+      for (const row of projectLifecycleRows) {
+        const count = Number(row.count);
+        const state = row.lifecycleState ?? "active";
+        if (state in projectLifecycle) {
+          projectLifecycle[state] += count;
+        }
+      }
+
+      const activeMilestones = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(milestones)
+        .where(
+          and(
+            eq(milestones.companyId, companyId),
+            or(eq(milestones.status, "pending"), eq(milestones.status, "active")),
+          ),
+        )
+        .then((rows) => Number(rows[0]?.count ?? 0));
+
+      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+      const recentLedgerEntries = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(ledgerEntries)
+        .where(
+          and(
+            eq(ledgerEntries.companyId, companyId),
+            gte(ledgerEntries.occurredAt, sevenDaysAgo),
+          ),
+        )
+        .then((rows) => Number(rows[0]?.count ?? 0));
+
       return {
         companyId,
         agents: {
@@ -94,6 +155,14 @@ export function dashboardService(db: Db) {
           monthUtilizationPercent: Number(utilization.toFixed(2)),
         },
         pendingApprovals,
+        departments: departmentCount,
+        projectLifecycle: {
+          active: projectLifecycle.active,
+          backlog: projectLifecycle.backlog,
+          archived: projectLifecycle.archived,
+        },
+        activeMilestones,
+        recentLedgerEntries,
       };
     },
   };

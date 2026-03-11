@@ -245,3 +245,37 @@ export const PERMISSION_KEYS = [
   "joins:approve",
 ] as const;
 export type PermissionKey = (typeof PERMISSION_KEYS)[number];
+
+// --- Paperwork additions ---
+
+export const LIFECYCLE_STATES = ["active", "backlog", "archived"] as const;
+export type LifecycleState = (typeof LIFECYCLE_STATES)[number];
+
+export const MILESTONE_STATUSES = ["pending", "active", "done"] as const;
+export type MilestoneStatus = (typeof MILESTONE_STATUSES)[number];
+
+export const LEDGER_ENTRY_TYPES = [
+  "baseline",
+  "feature",
+  "bugfix",
+  "design",
+  "research",
+  "art-generation",
+  "content",
+] as const;
+export type LedgerEntryType = (typeof LEDGER_ENTRY_TYPES)[number];
+
+export const SKILL_SOURCE_TYPES = ["manual", "compiled", "builtin"] as const;
+export type SkillSourceType = (typeof SKILL_SOURCE_TYPES)[number];
+
+export const DEPARTMENT_PLUGIN_TYPES = ["mcp_server", "cli_tool", "env_binding"] as const;
+export type DepartmentPluginType = (typeof DEPARTMENT_PLUGIN_TYPES)[number];
+
+export const BRIEFING_TRIGGERS = [
+  "cooled",
+  "reheated",
+  "archived",
+  "milestone_completed",
+  "manual",
+] as const;
+export type BriefingTrigger = (typeof BRIEFING_TRIGGERS)[number];

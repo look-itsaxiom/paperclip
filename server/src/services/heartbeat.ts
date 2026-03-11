@@ -32,6 +32,10 @@ import {
   releaseRuntimeServicesForRun,
 } from "./workspace-runtime.js";
 import { issueService } from "./issues.js";
+import { departmentSkillsService } from "./department-skills.js";
+import { departmentPluginsService } from "./department-plugins.js";
+import { ledgerEntriesService } from "./ledger-entries.js";
+import { projectLifecycleService } from "./project-lifecycle.js";
 import {
   buildExecutionWorkspaceAdapterConfig,
   parseIssueExecutionWorkspaceSettings,
@@ -1142,8 +1146,33 @@ export function heartbeatService(db: Db) {
       return;
     }
 
-    const runtime = await ensureRuntimeState(agent);
     const context = parseObject(run.contextSnapshot);
+
+    // Check project lifecycle — don't run agents for cooled/archived projects
+    const wakeProjectId = readNonEmptyString(context.projectId);
+    if (wakeProjectId) {
+      const projectRow = await db
+        .select({ lifecycleState: projects.lifecycleState })
+        .from(projects)
+        .where(and(eq(projects.id, wakeProjectId), eq(projects.companyId, agent.companyId)))
+        .then((rows) => rows[0] ?? null);
+      if (projectRow && projectRow.lifecycleState !== "active") {
+        await setRunStatus(runId, "cancelled", {
+          error: `Project lifecycle is "${projectRow.lifecycleState}" — skipping run`,
+          finishedAt: new Date(),
+        });
+        await setWakeupStatus(run.wakeupRequestId, "cancelled", {
+          finishedAt: new Date(),
+          error: `Project lifecycle is "${projectRow.lifecycleState}" — skipping run`,
+        });
+        const cancelledRun = await getRun(runId);
+        if (cancelledRun) await releaseIssueExecutionAndPromote(cancelledRun);
+        await finalizeAgentStatus(run.agentId, "cancelled");
+        return;
+      }
+    }
+
+    const runtime = await ensureRuntimeState(agent);
     const taskKey = deriveTaskKey(context, null);
     const sessionCodec = getAdapterSessionCodec(agent.adapterType);
     const issueId = readNonEmptyString(context.issueId);
@@ -1274,6 +1303,70 @@ export function heartbeatService(db: Db) {
       worktreePath: executionWorkspace.worktreePath,
     };
     context.paperclipWorkspaces = resolvedWorkspace.workspaceHints;
+
+    // Department skills injection
+    if (agent.departmentId) {
+      try {
+        const deptSkillsSvc = departmentSkillsService(db);
+        const deptSkills = await deptSkillsSvc.listForAgent(agent.companyId, agent.departmentId);
+        if (deptSkills.length > 0) {
+          context.paperclipDepartmentSkills = deptSkills;
+        }
+      } catch (err) {
+        logger.warn({ err, agentId: agent.id }, "Failed to load department skills");
+      }
+
+      // Department plugins injection (MCP servers, CLI tools, env bindings)
+      try {
+        const deptPluginsSvc = departmentPluginsService(db);
+        const deptPlugins = await deptPluginsSvc.listEnabled(agent.companyId, agent.departmentId);
+        if (deptPlugins.length > 0) {
+          context.paperclipDepartmentPlugins = deptPlugins;
+        }
+      } catch (err) {
+        logger.warn({ err, agentId: agent.id }, "Failed to load department plugins");
+      }
+    }
+
+    // Project warm-start context
+    const warmStartProjectId = readNonEmptyString(context.projectId) ||
+      (executionWorkspace.projectId ? String(executionWorkspace.projectId) : null);
+    if (warmStartProjectId) {
+      try {
+        const lifecycleSvc = projectLifecycleService(db);
+        const projectCtx = await lifecycleSvc.getProjectContext(agent.companyId, warmStartProjectId);
+        context.paperclipProjectContext = {
+          statusMd: projectCtx.project.statusMd,
+          lifecycleState: projectCtx.project.lifecycleState,
+          overallProgress: projectCtx.project.overallProgress,
+          totalSpendCents: projectCtx.project.totalSpendCents,
+          roiRatio: projectCtx.project.roiRatio,
+          techStack: projectCtx.project.techStack,
+          keyPaths: projectCtx.project.keyPaths,
+          latestBriefing: projectCtx.latestBriefing
+            ? {
+                triggerEvent: projectCtx.latestBriefing.triggerEvent,
+                contentMd: projectCtx.latestBriefing.contentMd,
+                createdAt: projectCtx.latestBriefing.createdAt,
+              }
+            : null,
+          activeMilestones: projectCtx.activeMilestones.map((m) => ({
+            name: m.name,
+            progress: m.progress,
+            status: m.status,
+          })),
+          recentWork: projectCtx.recentLedgerEntries.slice(0, 5).map((e) => ({
+            entryType: e.entryType,
+            description: e.description,
+            progressDelta: e.progressDelta,
+            occurredAt: e.occurredAt,
+          })),
+        };
+      } catch (err) {
+        logger.warn({ err, agentId: agent.id, projectId: warmStartProjectId }, "Failed to load project warm-start context");
+      }
+    }
+
     const runtimeServiceIntents = (() => {
       const runtimeConfig = parseObject(resolvedConfig.workspaceRuntime);
       return Array.isArray(runtimeConfig.services)
@@ -1646,6 +1739,17 @@ export function heartbeatService(db: Db) {
           }
         }
       }
+
+      // Best-effort: recompute project spend after cost data is recorded
+      const resolvedProjectId = executionWorkspace.projectId;
+      if (resolvedProjectId && (adapterResult.costUsd ?? 0) > 0) {
+        try {
+          await ledgerEntriesService(db).recomputeProjectSpend(agent.companyId, resolvedProjectId);
+        } catch (recomputeErr) {
+          logger.warn({ err: recomputeErr, projectId: resolvedProjectId, runId }, "failed to recompute project spend after run");
+        }
+      }
+
       await finalizeAgentStatus(agent.id, outcome);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown adapter failure";

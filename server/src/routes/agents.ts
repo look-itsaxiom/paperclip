@@ -21,6 +21,7 @@ import {
   agentService,
   accessService,
   approvalService,
+  departmentsService,
   heartbeatService,
   issueApprovalService,
   issueService,
@@ -52,6 +53,7 @@ export function agentRoutes(db: Db) {
   const svc = agentService(db);
   const access = accessService(db);
   const approvalsSvc = approvalService(db);
+  const deptSvc = departmentsService(db);
   const heartbeat = heartbeatService(db);
   const issueApprovalsSvc = issueApprovalService(db);
   const secretsSvc = secretService(db);
@@ -778,6 +780,23 @@ export function agentRoutes(db: Db) {
       assertBoard(req);
     }
 
+    // If departmentId is provided, look up the department and merge defaults
+    let departmentDefaults: { departmentId?: string; capabilities?: string; title?: string } = {};
+    if (req.body.departmentId) {
+      const department = await deptSvc.get(companyId, req.body.departmentId);
+      if (!department) {
+        res.status(422).json({ error: "Department not found" });
+        return;
+      }
+      departmentDefaults.departmentId = department.id;
+      if (!req.body.capabilities && department.description) {
+        departmentDefaults.capabilities = department.description;
+      }
+      if (!req.body.title && department.name) {
+        departmentDefaults.title = `${department.name} Specialist`;
+      }
+    }
+
     const requestedAdapterConfig = applyCreateDefaultsByAdapterType(
       req.body.adapterType,
       ((req.body.adapterConfig ?? {}) as Record<string, unknown>),
@@ -795,6 +814,7 @@ export function agentRoutes(db: Db) {
 
     const agent = await svc.create(companyId, {
       ...req.body,
+      ...departmentDefaults,
       adapterConfig: normalizedAdapterConfig,
       status: "idle",
       spentMonthlyCents: 0,

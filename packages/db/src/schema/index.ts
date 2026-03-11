@@ -32,3 +32,12 @@ export { approvalComments } from "./approval_comments.js";
 export { activityLog } from "./activity_log.js";
 export { companySecrets } from "./company_secrets.js";
 export { companySecretVersions } from "./company_secret_versions.js";
+// Paperwork tables
+export { departments } from "./departments.js";
+export { departmentRevisions } from "./department_revisions.js";
+export { departmentSkills } from "./department_skills.js";
+export { findings } from "./findings.js";
+export { milestones } from "./milestones.js";
+export { ledgerEntries } from "./ledger_entries.js";
+export { projectContextBriefings } from "./project_context_briefings.js";
+export { departmentPlugins } from "./department_plugins.js";
