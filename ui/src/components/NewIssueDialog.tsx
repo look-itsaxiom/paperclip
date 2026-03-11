@@ -71,7 +71,7 @@ interface IssueDraft {
   useIsolatedExecutionWorkspace: boolean;
 }
 
-const ISSUE_OVERRIDE_ADAPTER_TYPES = new Set(["claude_local", "codex_local", "opencode_local"]);
+const ISSUE_OVERRIDE_ADAPTER_TYPES = new Set(["claude_local", "gemini_local", "codex_local", "opencode_local"]);
 
 const ISSUE_THINKING_EFFORT_OPTIONS = {
   claude_local: [

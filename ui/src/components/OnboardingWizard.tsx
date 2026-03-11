@@ -50,6 +50,7 @@ import {
 type Step = 1 | 2 | 3 | 4;
 type AdapterType =
   | "claude_local"
+  | "gemini_local"
   | "codex_local"
   | "opencode_local"
   | "pi_local"
@@ -165,7 +166,7 @@ export function OnboardingWizard() {
     enabled: Boolean(createdCompanyId) && onboardingOpen && step === 2
   });
   const isLocalAdapter =
-    adapterType === "claude_local" || adapterType === "codex_local" || adapterType === "opencode_local" || adapterType === "cursor";
+      adapterType === "claude_local" || adapterType === "gemini_local" || adapterType === "codex_local" || adapterType === "opencode_local" || adapterType === "cursor";
   const effectiveAdapterCommand =
     command.trim() ||
     (adapterType === "codex_local"
@@ -274,7 +275,7 @@ export function OnboardingWizard() {
       command,
       args,
       url,
-      dangerouslySkipPermissions: adapterType === "claude_local",
+      dangerouslySkipPermissions: adapterType === "claude_local" || adapterType === "gemini_local",
       dangerouslyBypassSandbox:
         adapterType === "codex_local"
           ? DEFAULT_CODEX_LOCAL_BYPASS_APPROVALS_AND_SANDBOX
@@ -731,6 +732,7 @@ export function OnboardingWizard() {
 
                   {/* Conditional adapter fields */}
                   {(adapterType === "claude_local" ||
+                    adapterType === "gemini_local" ||
                     adapterType === "codex_local" ||
                     adapterType === "opencode_local" ||
                     adapterType === "pi_local" ||
