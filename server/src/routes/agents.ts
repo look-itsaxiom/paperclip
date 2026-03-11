@@ -43,6 +43,7 @@ import { ensureOpenCodeModelConfiguredAndAvailable } from "@paperclipai/adapter-
 export function agentRoutes(db: Db) {
   const DEFAULT_INSTRUCTIONS_PATH_KEYS: Record<string, string> = {
     claude_local: "instructionsFilePath",
+    gemini_local: "instructionsFilePath",
     codex_local: "instructionsFilePath",
     opencode_local: "instructionsFilePath",
     cursor: "instructionsFilePath",
