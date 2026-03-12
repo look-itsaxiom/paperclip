@@ -31,6 +31,7 @@ Core fields:
 - promptTemplate (string, optional): run prompt template
 - model (string, optional): Gemini model id. Defaults to auto.
 - sandbox (boolean, optional): run in sandbox mode (default: false, passes --sandbox=none)
+- yolo (boolean, optional): pass --approval-mode yolo for unattended operation (default: false)
 - command (string, optional): defaults to "gemini"
 - extraArgs (string[], optional): additional CLI args
 - env (object, optional): KEY=VALUE environment variables

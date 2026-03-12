@@ -23,7 +23,7 @@ export interface AdapterModel {
   label: string;
 }
 
-export interface ClaudeLoginResult {
+export interface LocalAgentLoginResult {
   exitCode: number | null;
   signal: string | null;
   timedOut: boolean;
@@ -31,6 +31,9 @@ export interface ClaudeLoginResult {
   stdout: string;
   stderr: string;
 }
+
+export type ClaudeLoginResult = LocalAgentLoginResult;
+export type GeminiLoginResult = LocalAgentLoginResult;
 
 export interface OrgNode {
   id: string;
@@ -144,4 +147,6 @@ export const agentsApi = {
   ) => api.post<HeartbeatRun | { status: "skipped" }>(agentPath(id, companyId, "/wakeup"), data),
   loginWithClaude: (id: string, companyId?: string) =>
     api.post<ClaudeLoginResult>(agentPath(id, companyId, "/claude-login"), {}),
+  loginWithGemini: (id: string, companyId?: string) =>
+    api.post<GeminiLoginResult>(agentPath(id, companyId, "/gemini-login"), {}),
 };
