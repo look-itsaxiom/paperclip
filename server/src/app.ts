@@ -29,6 +29,11 @@ import type { BetterAuthSessionResult } from "./auth/better-auth.js";
 
 type UiMode = "none" | "static" | "vite-dev";
 
+export type OidcProviderInfo = {
+  providerId: string;
+  displayName: string;
+};
+
 export async function createApp(
   db: Db,
   opts: {
@@ -43,6 +48,7 @@ export async function createApp(
     companyDeletionEnabled: boolean;
     betterAuthHandler?: express.RequestHandler;
     resolveSession?: (req: ExpressRequest) => Promise<BetterAuthSessionResult | null>;
+    oidcProviders?: OidcProviderInfo[];
   },
 ) {
   const app = express();
@@ -83,6 +89,14 @@ export async function createApp(
         email: null,
         name: req.actor.source === "local_implicit" ? "Local Board" : null,
       },
+    });
+  });
+  app.get("/api/auth/providers", (_req, res) => {
+    res.json({
+      oidc: (opts.oidcProviders ?? []).map((p) => ({
+        providerId: p.providerId,
+        displayName: p.displayName,
+      })),
     });
   });
   if (opts.betterAuthHandler) {
@@ -160,7 +174,9 @@ export async function createApp(
           port: hmrPort,
           clientPort: hmrPort,
         },
-        allowedHosts: privateHostnameGateEnabled ? Array.from(privateHostnameAllowSet) : undefined,
+        allowedHosts: opts.allowedHostnames.length > 0
+          ? Array.from(new Set([...opts.allowedHostnames, ...privateHostnameAllowSet]))
+          : undefined,
       },
     });
 

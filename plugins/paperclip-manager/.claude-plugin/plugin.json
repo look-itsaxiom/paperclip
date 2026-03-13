@@ -1,0 +1,10 @@
+{
+  "name": "paperclip-manager",
+  "version": "0.1.0",
+  "description": "Board-level Paperclip control plane management from inside Claude Code. Browse issues, manage agents, onboard projects, review approvals, and monitor costs across all companies.",
+  "author": {
+    "name": "Paperclip",
+    "url": "https://paperclip.ing"
+  },
+  "keywords": ["paperclip", "project-management", "control-plane", "admin"]
+}

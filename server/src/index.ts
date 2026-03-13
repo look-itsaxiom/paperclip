@@ -477,6 +477,10 @@ export async function startServer(): Promise<StartedServer> {
     companyDeletionEnabled: config.companyDeletionEnabled,
     betterAuthHandler,
     resolveSession,
+    oidcProviders: config.oidcProviders.map((p) => ({
+      providerId: p.providerId,
+      displayName: p.displayName,
+    })),
   });
   const server = createServer(app as unknown as Parameters<typeof createServer>[0]);
   

@@ -2,6 +2,7 @@ import type { Request, RequestHandler } from "express";
 import type { IncomingHttpHeaders } from "node:http";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import { genericOAuth } from "better-auth/plugins/generic-oauth";
 import { toNodeHandler } from "better-auth/node";
 import type { Db } from "@paperclipai/db";
 import {
@@ -73,6 +74,21 @@ export function createBetterAuthInstance(db: Db, config: Config, trustedOrigins?
   const publicUrl = process.env.PAPERCLIP_PUBLIC_URL ?? baseUrl;
   const isHttpOnly = publicUrl ? publicUrl.startsWith("http://") : false;
 
+  const plugins = config.oidcProviders.length > 0
+    ? [
+        genericOAuth({
+          config: config.oidcProviders.map((provider) => ({
+            providerId: provider.providerId,
+            discoveryUrl: provider.discoveryUrl,
+            clientId: provider.clientId,
+            clientSecret: provider.clientSecret,
+            scopes: provider.scopes ?? ["openid", "profile", "email"],
+            pkce: provider.pkce ?? false,
+          })),
+        }),
+      ]
+    : [];
+
   const authConfig = {
     baseURL: baseUrl,
     secret,
@@ -91,6 +107,7 @@ export function createBetterAuthInstance(db: Db, config: Config, trustedOrigins?
       requireEmailVerification: false,
       disableSignUp: config.authDisableSignUp,
     },
+    plugins,
     ...(isHttpOnly ? { advanced: { useSecureCookies: false } } : {}),
   };
 
