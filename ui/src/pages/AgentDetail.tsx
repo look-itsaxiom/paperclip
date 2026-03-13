@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { useParams, useNavigate, Link, Navigate, useBeforeUnload } from "@/lib/router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { agentsApi, type AgentKey, type ClaudeLoginResult } from "../api/agents";
+import { agentsApi, type AgentKey, type ClaudeLoginResult, type GeminiLoginResult } from "../api/agents";
 import { heartbeatsApi } from "../api/heartbeats";
 import { ApiError } from "../api/client";
 import { ChartCard, RunActivityChart, PriorityChart, IssueStatusChart, SuccessRateChart } from "../components/ActivityCharts";
@@ -1267,9 +1267,11 @@ function RunDetail({ run: initialRun, agentRouteId, adapterType }: { run: Heartb
   const metrics = runMetrics(run);
   const [sessionOpen, setSessionOpen] = useState(false);
   const [claudeLoginResult, setClaudeLoginResult] = useState<ClaudeLoginResult | null>(null);
+  const [geminiLoginResult, setGeminiLoginResult] = useState<GeminiLoginResult | null>(null);
 
   useEffect(() => {
     setClaudeLoginResult(null);
+    setGeminiLoginResult(null);
   }, [run.id]);
 
   const cancelRun = useMutation({
@@ -1372,6 +1374,13 @@ function RunDetail({ run: initialRun, agentRouteId, adapterType }: { run: Heartb
     mutationFn: () => agentsApi.loginWithClaude(run.agentId, run.companyId),
     onSuccess: (data) => {
       setClaudeLoginResult(data);
+    },
+  });
+
+  const runGeminiLogin = useMutation({
+    mutationFn: () => agentsApi.loginWithGemini(run.agentId, run.companyId),
+    onSuccess: (data) => {
+      setGeminiLoginResult(data);
     },
   });
 
@@ -1524,6 +1533,53 @@ function RunDetail({ run: initialRun, agentRouteId, adapterType }: { run: Heartb
                     {!!claudeLoginResult.stderr && (
                       <pre className="bg-neutral-100 dark:bg-neutral-950 rounded-md p-3 text-xs font-mono text-red-700 dark:text-red-300 overflow-x-auto whitespace-pre-wrap">
                         {claudeLoginResult.stderr}
+                      </pre>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+            {run.errorCode === "gemini_auth_required" && adapterType === "gemini_local" && (
+              <div className="space-y-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 px-2 text-xs"
+                  onClick={() => runGeminiLogin.mutate()}
+                  disabled={runGeminiLogin.isPending}
+                >
+                  {runGeminiLogin.isPending ? "Running gemini login..." : "Login to Gemini CLI"}
+                </Button>
+                {runGeminiLogin.isError && (
+                  <p className="text-xs text-destructive">
+                    {runGeminiLogin.error instanceof Error
+                      ? runGeminiLogin.error.message
+                      : "Failed to run Gemini login"}
+                  </p>
+                )}
+                {geminiLoginResult?.loginUrl && (
+                  <p className="text-xs">
+                    Login URL:
+                    <a
+                      href={geminiLoginResult.loginUrl}
+                      className="text-blue-600 underline underline-offset-2 ml-1 break-all dark:text-blue-400"
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      {geminiLoginResult.loginUrl}
+                    </a>
+                  </p>
+                )}
+                {geminiLoginResult && (
+                  <>
+                    {!!geminiLoginResult.stdout && (
+                      <pre className="bg-neutral-100 dark:bg-neutral-950 rounded-md p-3 text-xs font-mono text-foreground overflow-x-auto whitespace-pre-wrap">
+                        {geminiLoginResult.stdout}
+                      </pre>
+                    )}
+                    {!!geminiLoginResult.stderr && (
+                      <pre className="bg-neutral-100 dark:bg-neutral-950 rounded-md p-3 text-xs font-mono text-red-700 dark:text-red-300 overflow-x-auto whitespace-pre-wrap">
+                        {geminiLoginResult.stderr}
                       </pre>
                     )}
                   </>

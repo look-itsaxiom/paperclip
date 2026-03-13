@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { AdapterExecutionContext, AdapterExecutionResult } from "@paperclipai/adapter-utils";
+import type { RunProcessResult } from "@paperclipai/adapter-utils/server-utils";
 import {
   asBoolean,
   asNumber,
@@ -82,7 +83,9 @@ async function resolvePaperclipSkillsDir(): Promise<string | null> {
 }
 
 function geminiSkillsHome(): string {
-  return path.join(os.homedir(), ".gemini", "skills");
+  const fromEnv = process.env.GEMINI_HOME?.trim();
+  const base = fromEnv && fromEnv.length > 0 ? fromEnv : path.join(os.homedir(), ".gemini");
+  return path.join(base, "skills");
 }
 
 /**
@@ -91,7 +94,7 @@ function geminiSkillsHome(): string {
  * both its auth credentials and the injected skills in the real home directory.
  */
 async function ensureGeminiSkillsInjected(
-  onLog: AdapterExecutionContext["onLog"],
+  onLog: (stream: "stdout" | "stderr", chunk: string) => Promise<void>,
 ): Promise<void> {
   const skillsDir = await resolvePaperclipSkillsDir();
   if (!skillsDir) return;
@@ -137,23 +140,36 @@ async function ensureGeminiSkillsInjected(
   }
 }
 
-export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExecutionResult> {
-  const { runId, agent, runtime, config, context, onLog, onMeta, authToken } = ctx;
+interface GeminiExecutionInput {
+  runId: string;
+  agent: AdapterExecutionContext["agent"];
+  config: Record<string, unknown>;
+  context: Record<string, unknown>;
+  authToken?: string;
+}
 
-  const promptTemplate = asString(
-    config.promptTemplate,
-    "You are agent {{agent.id}} ({{agent.name}}). Continue your Paperclip work.",
-  );
+interface GeminiRuntimeConfig {
+  command: string;
+  cwd: string;
+  workspaceId: string | null;
+  workspaceRepoUrl: string | null;
+  workspaceRepoRef: string | null;
+  env: Record<string, string>;
+  timeoutSec: number;
+  graceSec: number;
+  extraArgs: string[];
+}
+
+async function buildGeminiRuntimeConfig(input: GeminiExecutionInput): Promise<GeminiRuntimeConfig> {
+  const { runId, agent, config, context, authToken } = input;
+
   const command = asString(config.command, "gemini");
-  const model = asString(config.model, DEFAULT_GEMINI_LOCAL_MODEL).trim();
-  const sandbox = asBoolean(config.sandbox, false);
-
   const workspaceContext = parseObject(context.paperclipWorkspace);
   const workspaceCwd = asString(workspaceContext.cwd, "");
   const workspaceSource = asString(workspaceContext.source, "");
-  const workspaceId = asString(workspaceContext.workspaceId, "");
-  const workspaceRepoUrl = asString(workspaceContext.repoUrl, "");
-  const workspaceRepoRef = asString(workspaceContext.repoRef, "");
+  const workspaceId = asString(workspaceContext.workspaceId, "") || null;
+  const workspaceRepoUrl = asString(workspaceContext.repoUrl, "") || null;
+  const workspaceRepoRef = asString(workspaceContext.repoRef, "") || null;
   const workspaceHints = Array.isArray(context.paperclipWorkspaces)
     ? context.paperclipWorkspaces.filter(
       (value): value is Record<string, unknown> => typeof value === "object" && value !== null,
@@ -164,13 +180,13 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   const effectiveWorkspaceCwd = useConfiguredInsteadOfAgentHome ? "" : workspaceCwd;
   const cwd = effectiveWorkspaceCwd || configuredCwd || process.cwd();
   await ensureAbsoluteDirectory(cwd, { createIfMissing: true });
-  await ensureGeminiSkillsInjected(onLog);
 
   const envConfig = parseObject(config.env);
   const hasExplicitApiKey =
     typeof envConfig.PAPERCLIP_API_KEY === "string" && envConfig.PAPERCLIP_API_KEY.trim().length > 0;
   const env: Record<string, string> = { ...buildPaperclipEnv(agent) };
   env.PAPERCLIP_RUN_ID = runId;
+
   const wakeTaskId =
     (typeof context.taskId === "string" && context.taskId.trim().length > 0 && context.taskId.trim()) ||
     (typeof context.issueId === "string" && context.issueId.trim().length > 0 && context.issueId.trim()) ||
@@ -194,6 +210,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   const linkedIssueIds = Array.isArray(context.issueIds)
     ? context.issueIds.filter((value): value is string => typeof value === "string" && value.trim().length > 0)
     : [];
+
   if (wakeTaskId) env.PAPERCLIP_TASK_ID = wakeTaskId;
   if (wakeReason) env.PAPERCLIP_WAKE_REASON = wakeReason;
   if (wakeCommentId) env.PAPERCLIP_WAKE_COMMENT_ID = wakeCommentId;
@@ -213,7 +230,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   if (!hasExplicitApiKey && authToken) {
     env.PAPERCLIP_API_KEY = authToken;
   }
-  const billingType = resolveGeminiBillingType(env);
+
   const runtimeEnv = ensurePathInEnv({ ...process.env, ...env });
   await ensureCommandResolvable(command, cwd, runtimeEnv);
 
@@ -224,6 +241,105 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     if (fromExtraArgs.length > 0) return fromExtraArgs;
     return asStringArray(config.args);
   })();
+
+  return {
+    command,
+    cwd,
+    workspaceId,
+    workspaceRepoUrl,
+    workspaceRepoRef,
+    env,
+    timeoutSec,
+    graceSec,
+    extraArgs,
+  };
+}
+
+function buildLoginResult(input: {
+  proc: RunProcessResult;
+  loginUrl: string | null;
+}) {
+  return {
+    exitCode: input.proc.exitCode,
+    signal: input.proc.signal,
+    timedOut: input.proc.timedOut,
+    stdout: input.proc.stdout,
+    stderr: input.proc.stderr,
+    loginUrl: input.loginUrl,
+  };
+}
+
+export async function runGeminiLogin(input: {
+  runId: string;
+  agent: AdapterExecutionContext["agent"];
+  config: Record<string, unknown>;
+  context?: Record<string, unknown>;
+  authToken?: string;
+  onLog?: (stream: "stdout" | "stderr", chunk: string) => Promise<void>;
+}) {
+  const onLog = input.onLog ?? (async () => { });
+  const runtime = await buildGeminiRuntimeConfig({
+    runId: input.runId,
+    agent: input.agent,
+    config: input.config,
+    context: input.context ?? {},
+    authToken: input.authToken,
+  });
+
+  const proc = await runChildProcess(input.runId, runtime.command, ["auth", "login"], {
+    cwd: runtime.cwd,
+    env: runtime.env,
+    timeoutSec: runtime.timeoutSec,
+    graceSec: runtime.graceSec,
+    onLog,
+  });
+
+  const authMeta = detectGeminiAuthRequired({
+    parsed: null,
+    stdout: proc.stdout,
+    stderr: proc.stderr,
+  });
+
+  // Gemini CLI login typically outputs a URL to stdout or stderr if it needs a browser.
+  // We'll look for a URL in the output.
+  const loginUrlMatch = (proc.stdout + proc.stderr).match(/https?:\/\/[^\s]+/);
+  const loginUrl = loginUrlMatch ? loginUrlMatch[0] : null;
+
+  return buildLoginResult({
+    proc,
+    loginUrl,
+  });
+}
+
+export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExecutionResult> {
+  const { runId, agent, runtime, config, context, onLog, onMeta, authToken } = ctx;
+
+  const runtimeConfig = await buildGeminiRuntimeConfig({
+    runId,
+    agent,
+    config,
+    context,
+    authToken,
+  });
+
+  const {
+    command,
+    cwd,
+    workspaceId,
+    workspaceRepoUrl,
+    workspaceRepoRef,
+    env,
+    timeoutSec,
+    graceSec,
+    extraArgs,
+  } = runtimeConfig;
+
+  await ensureGeminiSkillsInjected(onLog);
+
+  const billingType = resolveGeminiBillingType(env);
+  const model = asString(config.model, DEFAULT_GEMINI_LOCAL_MODEL).trim();
+  const sandbox = asBoolean(config.sandbox, false);
+  const yolo = asBoolean(config.yolo, false);
 
   const runtimeSessionParams = parseObject(runtime.sessionParams);
   const runtimeSessionId = asString(runtimeSessionParams.sessionId, runtime.sessionId ?? "");
@@ -261,9 +377,14 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       );
     }
   }
+
+  const promptTemplate = asString(
+    config.promptTemplate,
+    "You are agent {{agent.id}} ({{agent.name}}). Continue your Paperclip work.",
+  );
   const commandNotes = (() => {
     const notes: string[] = ["Prompt is passed to Gemini as the final positional argument."];
-    notes.push("Added --approval-mode yolo for unattended execution.");
+    if (yolo) notes.push("Added --approval-mode yolo for unattended execution.");
     if (!instructionsFilePath) return notes;
     if (instructionsPrefix.length > 0) {
       notes.push(
@@ -295,7 +416,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     const args = ["--output-format", "stream-json"];
     if (resumeSessionId) args.push("--resume", resumeSessionId);
     if (model && model !== DEFAULT_GEMINI_LOCAL_MODEL) args.push("--model", model);
-    args.push("--approval-mode", "yolo");
+    if (yolo) args.push("--approval-mode", "yolo");
     if (sandbox) {
       args.push("--sandbox");
     } else {

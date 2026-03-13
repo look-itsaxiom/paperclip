@@ -29,6 +29,16 @@ if (existsSync(PAPERCLIP_ENV_FILE_PATH)) {
 
 type DatabaseMode = "embedded-postgres" | "postgres";
 
+export interface OidcProviderConfig {
+  providerId: string;
+  displayName: string;
+  discoveryUrl: string;
+  clientId: string;
+  clientSecret: string;
+  scopes?: string[];
+  pkce?: boolean;
+}
+
 export interface Config {
   deploymentMode: DeploymentMode;
   deploymentExposure: DeploymentExposure;
@@ -38,6 +48,7 @@ export interface Config {
   authBaseUrlMode: AuthBaseUrlMode;
   authPublicBaseUrl: string | undefined;
   authDisableSignUp: boolean;
+  oidcProviders: OidcProviderConfig[];
   databaseMode: DatabaseMode;
   databaseUrl: string | undefined;
   embeddedPostgresDataDir: string;
@@ -174,6 +185,46 @@ export function loadConfig(): Config {
         .filter(Boolean),
     ),
   );
+  // OIDC providers from environment variables
+  // Supports PAPERCLIP_OIDC_PROVIDER_ID, PAPERCLIP_OIDC_DISCOVERY_URL, etc. for a single provider
+  // or PAPERCLIP_OIDC_0_PROVIDER_ID, PAPERCLIP_OIDC_0_DISCOVERY_URL, etc. for multiple
+  const oidcProviders: OidcProviderConfig[] = [];
+  const singleProviderId = process.env.PAPERCLIP_OIDC_PROVIDER_ID;
+  if (singleProviderId) {
+    const discoveryUrl = process.env.PAPERCLIP_OIDC_DISCOVERY_URL;
+    const clientId = process.env.PAPERCLIP_OIDC_CLIENT_ID;
+    const clientSecret = process.env.PAPERCLIP_OIDC_CLIENT_SECRET;
+    if (discoveryUrl && clientId && clientSecret) {
+      oidcProviders.push({
+        providerId: singleProviderId,
+        displayName: process.env.PAPERCLIP_OIDC_DISPLAY_NAME ?? singleProviderId,
+        discoveryUrl,
+        clientId,
+        clientSecret,
+        scopes: process.env.PAPERCLIP_OIDC_SCOPES?.split(",").map((s) => s.trim()).filter(Boolean),
+        pkce: process.env.PAPERCLIP_OIDC_PKCE === "true",
+      });
+    }
+  }
+  for (let i = 0; i < 10; i++) {
+    const providerId = process.env[`PAPERCLIP_OIDC_${i}_PROVIDER_ID`];
+    if (!providerId) continue;
+    const discoveryUrl = process.env[`PAPERCLIP_OIDC_${i}_DISCOVERY_URL`];
+    const clientId = process.env[`PAPERCLIP_OIDC_${i}_CLIENT_ID`];
+    const clientSecret = process.env[`PAPERCLIP_OIDC_${i}_CLIENT_SECRET`];
+    if (discoveryUrl && clientId && clientSecret) {
+      oidcProviders.push({
+        providerId,
+        displayName: process.env[`PAPERCLIP_OIDC_${i}_DISPLAY_NAME`] ?? providerId,
+        discoveryUrl,
+        clientId,
+        clientSecret,
+        scopes: process.env[`PAPERCLIP_OIDC_${i}_SCOPES`]?.split(",").map((s) => s.trim()).filter(Boolean),
+        pkce: process.env[`PAPERCLIP_OIDC_${i}_PKCE`] === "true",
+      });
+    }
+  }
+
   const companyDeletionEnvRaw = process.env.PAPERCLIP_ENABLE_COMPANY_DELETION;
   const companyDeletionEnabled =
     companyDeletionEnvRaw !== undefined
@@ -243,5 +294,6 @@ export function loadConfig(): Config {
     heartbeatSchedulerEnabled: process.env.HEARTBEAT_SCHEDULER_ENABLED !== "false",
     heartbeatSchedulerIntervalMs: Math.max(10000, Number(process.env.HEARTBEAT_SCHEDULER_INTERVAL_MS) || 30000),
     companyDeletionEnabled,
+    oidcProviders,
   };
 }

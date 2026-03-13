@@ -5,7 +5,7 @@ import { authApi } from "../api/auth";
 import { queryKeys } from "../lib/queryKeys";
 import { Button } from "@/components/ui/button";
 import { AsciiArtAnimation } from "@/components/AsciiArtAnimation";
-import { Sparkles } from "lucide-react";
+import { Sparkles, KeyRound } from "lucide-react";
 
 type AuthMode = "sign_in" | "sign_up";
 
@@ -25,6 +25,12 @@ export function AuthPage() {
     queryFn: () => authApi.getSession(),
     retry: false,
   });
+  const { data: providers } = useQuery({
+    queryKey: ["auth", "providers"],
+    queryFn: () => authApi.getProviders(),
+    retry: false,
+  });
+  const oidcProviders = providers?.oidc ?? [];
 
   useEffect(() => {
     if (session) {
@@ -87,8 +93,33 @@ export function AuthPage() {
               : "Create an account for this instance. Email confirmation is not required in v1."}
           </p>
 
+          {oidcProviders.length > 0 && (
+            <div className="mt-6 space-y-2">
+              {oidcProviders.map((provider) => (
+                <Button
+                  key={provider.providerId}
+                  type="button"
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => authApi.signInOidc(provider.providerId, nextPath)}
+                >
+                  <KeyRound className="mr-2 h-4 w-4" />
+                  Sign in with {provider.displayName}
+                </Button>
+              ))}
+              <div className="relative my-4">
+                <div className="absolute inset-0 flex items-center">
+                  <span className="w-full border-t border-border" />
+                </div>
+                <div className="relative flex justify-center text-xs">
+                  <span className="bg-background px-2 text-muted-foreground">or continue with email</span>
+                </div>
+              </div>
+            </div>
+          )}
+
           <form
-            className="mt-6 space-y-4"
+            className={`${oidcProviders.length > 0 ? "mt-0" : "mt-6"} space-y-4`}
             onSubmit={(event) => {
               event.preventDefault();
               mutation.mutate();

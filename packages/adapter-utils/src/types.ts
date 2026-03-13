@@ -231,6 +231,8 @@ export interface CreateConfigValues {
   dangerouslySkipPermissions: boolean;
   search: boolean;
   dangerouslyBypassSandbox: boolean;
+  geminiYolo: boolean;
+  geminiSandbox: boolean;
   command: string;
   args: string;
   extraArgs: string;

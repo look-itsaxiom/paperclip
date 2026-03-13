@@ -2,6 +2,7 @@ import type { AdapterConfigFieldsProps } from "../types";
 import {
   DraftInput,
   Field,
+  ToggleField,
 } from "../../components/agent-config-primitives";
 import { ChoosePathButton } from "../../components/PathInstructionsModal";
 
@@ -44,6 +45,36 @@ export function GeminiLocalConfigFields({
           <ChoosePathButton />
         </div>
       </Field>
+
+      <ToggleField
+        label="YOLO mode"
+        hint="Pass --approval-mode yolo to Gemini for unattended operation."
+        checked={
+          isCreate
+            ? values!.geminiYolo
+            : Boolean(eff("adapterConfig", "yolo", config.yolo === true))
+        }
+        onCheckedChange={(v) =>
+          isCreate
+            ? set!({ geminiYolo: v })
+            : mark("adapterConfig", "yolo", v)
+        }
+      />
+
+      <ToggleField
+        label="Sandbox mode"
+        hint="Pass --sandbox to Gemini. If disabled, passes --sandbox=none."
+        checked={
+          isCreate
+            ? values!.geminiSandbox
+            : Boolean(eff("adapterConfig", "sandbox", config.sandbox === true))
+        }
+        onCheckedChange={(v) =>
+          isCreate
+            ? set!({ geminiSandbox: v })
+            : mark("adapterConfig", "sandbox", v)
+        }
+      />
     </>
   );
 }

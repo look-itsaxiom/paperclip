@@ -43,6 +43,11 @@ async function authPost(path: string, body: Record<string, unknown>) {
   return payload;
 }
 
+export type OidcProviderInfo = {
+  providerId: string;
+  displayName: string;
+};
+
 export const authApi = {
   getSession: async (): Promise<AuthSession | null> => {
     const res = await fetch("/api/auth/get-session", {
@@ -70,5 +75,25 @@ export const authApi = {
 
   signOut: async () => {
     await authPost("/sign-out", {});
+  },
+
+  getProviders: async (): Promise<{ oidc: OidcProviderInfo[] }> => {
+    const res = await fetch("/api/auth/providers", {
+      credentials: "include",
+      headers: { Accept: "application/json" },
+    });
+    if (!res.ok) return { oidc: [] };
+    return res.json();
+  },
+
+  signInOidc: async (providerId: string, callbackURL?: string) => {
+    const res = await authPost("/sign-in/oauth2", {
+      providerId,
+      callbackURL: callbackURL ?? "/",
+    });
+    const data = res as { url?: string; redirect?: boolean };
+    if (data.url) {
+      window.location.href = data.url;
+    }
   },
 };

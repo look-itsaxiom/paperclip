@@ -1,0 +1,18 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "paperclip-manager-marketplace",
+  "version": "0.1.0",
+  "description": "Board-level Paperclip control plane management from inside Claude Code",
+  "owner": {
+    "name": "Paperclip",
+    "email": "admin@paperclip.ing"
+  },
+  "plugins": [
+    {
+      "name": "paperclip-manager",
+      "description": "Manage issues, agents, projects, approvals, and costs across all Paperclip companies through interactive commands and natural language.",
+      "category": "productivity",
+      "source": "./."
+    }
+  ]
+}

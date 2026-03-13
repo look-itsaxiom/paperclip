@@ -17,12 +17,27 @@ interface ActorMiddlewareOptions {
   resolveSession?: (req: Request) => Promise<BetterAuthSessionResult | null>;
 }
 
+function isLoopbackRequest(req: Request): boolean {
+  const addr = req.socket?.remoteAddress ?? req.ip ?? "";
+  return addr === "127.0.0.1" || addr === "::1" || addr === "::ffff:127.0.0.1";
+}
+
 export function actorMiddleware(db: Db, opts: ActorMiddlewareOptions): RequestHandler {
   return async (req, _res, next) => {
     req.actor =
       opts.deploymentMode === "local_trusted"
         ? { type: "board", userId: "local-board", isInstanceAdmin: true, source: "local_implicit" }
         : { type: "none", source: "none" };
+
+    // Trust loopback requests in authenticated mode (CLI, local agents, plugin scripts)
+    if (opts.deploymentMode === "authenticated" && isLoopbackRequest(req) && !req.header("authorization")) {
+      const hasSession = req.headers.cookie?.includes("better-auth.session_token");
+      if (!hasSession) {
+        req.actor = { type: "board", userId: "local-board", isInstanceAdmin: true, source: "local_implicit" };
+        next();
+        return;
+      }
+    }
 
     const runIdHeader = req.header("x-paperclip-run-id");
 
